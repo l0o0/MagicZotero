@@ -1,0 +1,73 @@
+name: Sync XPI and Release
+on:
+  schedule:
+    - cron: '0 0 * * *' # 每天UTC时间0点运行
+  workflow_dispatch: # 允许手动触发
+jobs:
+  sync-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (with tags)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 获取所有历史记录用于版本检查
+      - name: Download XPI file
+        run: |
+          if ! curl -L "https://ftp.magiczotero.top/%E6%8F%92%E4%BB%B6%E5%AE%89%E8%A3%85%E5%8C%85/zotero-magic-for-user.xpi" --output zotero-magic-for-user.xpi; then
+            echo "::error::Failed to download XPI file"
+            exit 1
+          fi
+      - name: Extract version from manifest
+        id: version
+        run: |
+          # 确保解压manifest.json
+          if ! unzip -p zotero-magic-for-user.xpi manifest.json > temp_manifest.json; then
+            echo "::error::Failed to extract manifest.json from XPI"
+            exit 1
+          fi
+          
+          VERSION=$(jq -r '.version' temp_manifest.json)
+          if [ -z "$VERSION" ]; then
+            echo "::error::Version not found in manifest.json"
+            exit 1
+          fi
+          
+          echo "Extracted version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Check for existing release
+        id: check-release
+        run: |
+          # 检查是否已存在该版本的Git标签
+          if git rev-parse "refs/tags/v${{ steps.version.outputs.version }}" >/dev/null 2>&1; then
+            echo "::notice::Release v${{ steps.version.outputs.version }} already exists"
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+      - name: Commit XPI file (if new version)
+        if: steps.check-release.outputs.skip == 'false'
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          git add zotero-magic-for-user.xpi
+          git commit -m "Update XPI to version ${{ steps.version.outputs.version }}"
+          git push origin ${{ github.ref_name }}
+      - name: Create Release (if new version)
+        if: steps.check-release.outputs.skip == 'false'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: "Version ${{ steps.version.outputs.version }}"
+          body: |
+            Automated release of zotero-magic-for-user.xpi
+            - Source: https://ftp.magiczotero.top
+            - Build date: $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          files: zotero-magic-for-user.xpi
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Skip message (if existing version)
+        if: steps.check-release.outputs.skip == 'true'
+        run: |
+          echo "Skipping release for existing version: v${{ steps.version.outputs.version }}"
