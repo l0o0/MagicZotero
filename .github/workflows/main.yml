@@ -10,7 +10,9 @@ jobs:
       - name: Checkout code (with tags)
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # 获取所有历史记录用于版本检查
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          persist-credentials: true
       - name: Download XPI file
         run: |
           if ! curl -L "https://ftp.magiczotero.top/%E6%8F%92%E4%BB%B6%E5%AE%89%E8%A3%85%E5%8C%85/zotero-magic-for-user.xpi" --output zotero-magic-for-user.xpi; then
